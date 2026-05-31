@@ -1,0 +1,17 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Config files (contains private Gemini API Key)
+config.ini
+config.ini.bak
+
+# Local test reports and temp CSV files
+*.csv
+test_run_results.csv
+
+# OS generated files
+.DS_Store
+Thumbs.db
