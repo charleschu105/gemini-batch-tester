@@ -5,13 +5,11 @@ echo [System] Installing Python dependencies...
 echo ===================================================
 echo.
 
-:: Change working directory to the directory of this batch file
 cd /d "%~dp0"
 
-:: Check if Python is installed
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    :: Try 'py' launcher
+    rem Try 'py' launcher
     py --version >nul 2>&1
     if %errorlevel% neq 0 (
         echo [Error] Python is not installed or not in your system PATH!
