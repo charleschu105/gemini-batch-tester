@@ -8,8 +8,22 @@ echo.
 :: Change working directory to the directory of this batch file
 cd /d "%~dp0"
 
-echo [System] Executing: pip install -r requirements.txt
-pip install -r requirements.txt
+echo [System] Executing: python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
+
+if %errorlevel% neq 0 (
+    echo.
+    echo [System] Global installation failed or python command failed, trying user-level installation...
+    echo [System] Executing: python -m pip install --user -r requirements.txt
+    python -m pip install --user -r requirements.txt
+)
+
+if %errorlevel% neq 0 (
+    echo.
+    echo [System] Trying fallback with direct pip command...
+    echo [System] Executing: pip install --user -r requirements.txt
+    pip install --user -r requirements.txt
+)
 
 if %errorlevel% neq 0 (
     echo.
