@@ -8,15 +8,30 @@ echo.
 :: Change working directory to the directory of this batch file
 cd /d "%~dp0"
 
+:: Test if python is installed and dependencies are met
+python -c "import customtkinter, google.genai, PIL" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [System] Dependencies (customtkinter, etc.) are missing or Python is not set up!
+    echo [System] Running installation script first...
+    echo.
+    call install.bat
+    
+    :: Re-check after installation
+    python -c "import customtkinter, google.genai, PIL" >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [Error] Dependencies are still missing. Launch aborted.
+        pause
+        exit /b 1
+    )
+)
+
 :: Start the Python application
 python main.py
 
 :: Pause if an error occurs to let the user see the traceback
 if %errorlevel% neq 0 (
     echo.
-    echo [Error] Application terminated unexpectedly. Please verify:
-    echo 1. Python 3.9+ is installed and added to your system PATH.
-    echo 2. Dependencies are installed by running: pip install -r requirements.txt
+    echo [Error] Application terminated unexpectedly.
     echo.
     pause
 )
