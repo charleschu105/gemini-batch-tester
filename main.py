@@ -13,6 +13,7 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 from google import genai
 from google.genai import types
+import webbrowser
 
 # ---------------------------------------------------------
 # 1. 系統設定與 INI 檔讀寫邏輯 (config.ini)
@@ -233,6 +234,17 @@ class GeminiBatchTesterApp(ctk.CTk):
         )
         self.toggle_key_btn.grid(row=0, column=1, padx=(5, 0))
 
+        # 獲取 API 金鑰超連結
+        self.get_key_link = ctk.CTkLabel(
+            self.settings_frame, 
+            text="👉 點此獲取 Gemini API 金鑰 (https://aistudio.google.com/app/api-keys)", 
+            font=ctk.CTkFont(family="Microsoft JhengHei", size=11, underline=True),
+            text_color="#63a5ff",
+            cursor="hand2"
+        )
+        self.get_key_link.grid(row=2, column=0, columnspan=2, padx=(15, 15), pady=(0, 10), sticky="w")
+        self.get_key_link.bind("<Button-1>", lambda e: webbrowser.open("https://aistudio.google.com/app/api-keys"))
+
         # --- 區域二：提示詞範本設定 ---
         self.prompt_frame = ctk.CTkFrame(self.left_col_frame)
         self.prompt_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
@@ -400,7 +412,10 @@ class GeminiBatchTesterApp(ctk.CTk):
         """啟動背景執行緒查詢 API 金鑰與可用模型清單"""
         api_key = self.key_entry.get().strip()
         if not api_key:
-            messagebox.showerror("驗證錯誤", "請先在【批次測試】分頁中填入您的 Gemini API Key！")
+            messagebox.showerror(
+                "驗證錯誤", 
+                "請先在【批次測試】分頁中填入您的 Gemini API Key！\n\n若您尚未擁有 API 金鑰，請至以下網址獲取：\nhttps://aistudio.google.com/app/api-keys"
+            )
             return
             
         self.verify_key_btn.configure(state="disabled", text="正在查詢中...")
@@ -570,7 +585,10 @@ class GeminiBatchTesterApp(ctk.CTk):
         prompt_template = self.prompt_text.get("0.0", tk.END).strip()
 
         if not api_key:
-            messagebox.showerror("設定錯誤", "請先輸入您的 Gemini API Key！")
+            messagebox.showerror(
+                "設定錯誤", 
+                "請先輸入您的 Gemini API Key！\n\n若您尚未擁有 API 金鑰，請至以下網址獲取：\nhttps://aistudio.google.com/app/api-keys"
+            )
             return
         if not folder_path or not os.path.exists(folder_path) or not os.path.isdir(folder_path):
             messagebox.showerror("設定錯誤", "請選擇一個有效的本機圖檔資料夾！")
