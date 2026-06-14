@@ -98,10 +98,10 @@ def test_csv_logic():
         os.remove(temp_csv)
         
     try:
-        # 14 columns row:
-        # [原物品名稱, 原分類, 原敘述, 原編號, 模型 ID, 辨識物品名稱, 辨識分類, 辨識信心度, 辨識有效日期, 辨識狀態, 錯誤訊息, 名稱比對, 類別比對, 過期日期比對]
-        row_data_1 = ["蘋果", "食品", "EX2026-08-11", "01", "gemini-3.5-flash", "蘋果", "食品", "95%", "2026-08-11", "成功", "", "OK", "OK", "OK"]
-        row_data_2 = ["未知", "未知", "無", "未知", "gemini-3.5-flash", "滑鼠", "電子產品", "80%", "無", "成功", "", "FAIL", "FAIL", "NA"]
+        # 15 columns row:
+        # [原圖檔檔名, 原物品名稱, 原分類, 原敘述, 原編號, 模型 ID, 辨識物品名稱, 辨識分類, 辨識信心度, 辨識有效日期, 辨識狀態, 錯誤訊息, 名稱比對, 類別比對, 過期日期比對]
+        row_data_1 = ["蘋果_食品_EX2026-08-11_01.jpg", "蘋果", "食品", "EX2026-08-11", "01", "gemini-3.5-flash", "蘋果", "食品", "95%", "2026-08-11", "成功", "", "OK", "OK", "OK"]
+        row_data_2 = ["未知_未知_無_未知.jpg", "未知", "未知", "無", "未知", "gemini-3.5-flash", "滑鼠", "電子產品", "80%", "無", "成功", "", "FAIL", "FAIL", "NA"]
         
         append_to_csv(temp_csv, row_data_1)
         append_to_csv(temp_csv, row_data_2)
@@ -114,10 +114,10 @@ def test_csv_logic():
             rows = list(reader)
             
         assert len(rows) == 3, f"Expected 3 rows (header + 2 data), got {len(rows)}"
-        assert rows[0][0] == "原物品名稱", "Header check failed"
-        assert rows[0][2] == "原敘述", f"Expected '原敘述' at index 2, got {rows[0][2]}"
-        assert rows[1][0] == "蘋果", "Data row 1 Chinese encoding failed"
-        assert rows[2][5] == "滑鼠", f"Expected '滑鼠' at index 5, got {rows[2][5]}"
+        assert rows[0][0] == "原圖檔檔名", "Header check failed"
+        assert rows[0][3] == "原敘述", f"Expected '原敘述' at index 3, got {rows[0][3]}"
+        assert rows[1][1] == "蘋果", "Data row 1 Chinese encoding failed"
+        assert rows[2][6] == "滑鼠", f"Expected '滑鼠' at index 6, got {rows[2][6]}"
         
         # Assert Match columns are at the end of the header
         assert rows[0][-3] == "名稱比對", f"Expected '名稱比對' at third to last, got {rows[0][-3]}"

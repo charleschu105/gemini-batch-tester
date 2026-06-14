@@ -122,7 +122,7 @@ def append_to_csv(csv_path, row_data):
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "原物品名稱", "原分類", "原敘述", "原編號", "模型 ID",
+                "原圖檔檔名", "原物品名稱", "原分類", "原敘述", "原編號", "模型 ID",
                 "辨識物品名稱", "辨識分類", "辨識信心度", "辨識有效日期",
                 "辨識狀態", "錯誤訊息", "名稱比對", "類別比對", "過期日期比對"
             ])
@@ -881,6 +881,7 @@ class GeminiBatchTesterApp(ctk.CTk):
 
                 # 5. 組裝數據並即時寫入 CSV 檔案中
                 row = [
+                    filename,                         # 原圖檔檔名
                     target_name,                      # 原物品名稱 (Ground Truth)
                     target_category,                  # 原分類 (Ground Truth)
                     target_desc,                      # 原敘述 (Ground Truth)
@@ -982,17 +983,20 @@ class GeminiBatchTesterApp(ctk.CTk):
                 reader = csv.reader(f)
                 header = next(reader)
                 
+                # 檢查是否含有 "原圖檔檔名" 欄位，若是舊版格式則拒絕
+                if "原圖檔檔名" not in header:
+                    self.log("[系統通知] 該 CSV 結果檔不包含原檔名欄位（舊版格式），無法進行精確重命名。")
+                    messagebox.showerror("重命名錯誤", "該 CSV 結果檔不包含原檔名欄位（舊版格式），無法進行精確重命名。")
+                    return
+                
                 # 取得必要欄位索引
-                idx_gt_name = header.index("原物品名稱")
-                idx_gt_cat = header.index("原分類")
-                idx_gt_desc = header.index("原敘述")
-                idx_gt_id = header.index("原編號")
+                idx_filename = header.index("原圖檔檔名")
                 idx_pred_name = header.index("辨識物品名稱")
                 idx_pred_cat = header.index("辨識分類")
                 idx_status = header.index("辨識狀態")
                 
                 for row in reader:
-                    if len(row) > max(idx_status, idx_pred_name, idx_pred_cat, idx_gt_id):
+                    if len(row) > max(idx_status, idx_pred_name, idx_pred_cat, idx_filename):
                         csv_rows.append(row)
         except Exception as csv_err:
             messagebox.showerror("讀取錯誤", f"讀取 CSV 檔案失敗: {csv_err}")
@@ -1006,73 +1010,108 @@ class GeminiBatchTesterApp(ctk.CTk):
         # 3. 掃描圖檔並匹配 CSV 重命名
         valid_extensions = ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
         try:
-            all_files = os.listdir(folder_path)
+            folder_images = {f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f)) and f.lower().endswith(valid_extensions)}
         except Exception as e:
             messagebox.showerror("讀取錯誤", f"無法掃描資料夾檔案: {e}")
             return
 
-        rename_count = 0
-        skip_count = 0
+        # 收集待重命名的候選檔案
+        candidates = []
+        matched_filenames = set()
         
-        for filename in all_files:
-            file_full_path = os.path.join(folder_path, filename)
-            if not os.path.isfile(file_full_path):
-                continue
-            
-            _, ext = os.path.splitext(filename)
-            if ext.lower() not in valid_extensions:
-                continue
+        for row in csv_rows:
+            filename = row[idx_filename].strip()
+            # 若檔案存在於資料夾中，且尚未比對過（避免重複 CSV 列衝突）
+            if filename in folder_images and filename not in matched_filenames:
+                matched_filenames.add(filename)
+                if row[idx_status] == "成功":
+                    pred_name = row[idx_pred_name].strip()
+                    pred_cat = row[idx_pred_cat].strip()
+                    
+                    # 排除空值或無效字元
+                    if not pred_name or pred_name == "辨識失敗" or pred_name == "未知":
+                        continue
+                    
+                    candidates.append({
+                        'filename': filename,
+                        'file_full_path': os.path.join(folder_path, filename),
+                        'pred_name': pred_name,
+                        'pred_cat': pred_cat,
+                        'ext': os.path.splitext(filename)[1]
+                    })
 
-            # 解析當前檔案的真實標籤
-            target_name, target_category, target_desc, target_id = parse_filename(filename)
+        if not candidates:
+            self.log("[系統通知] 沒有任何影像需要重新命名。")
+            messagebox.showinfo("重命名完成", "沒有任何影像需要重新命名。")
+            return
+
+        # 依字母順序排序候選名單，確保動態編號順序一致
+        candidates.sort(key=lambda x: x['filename'])
+
+        # 依辨識物品名稱相同的檔案進行動態重新編號 (1, 2, 3...)
+        pred_name_counts = {}
+        remaining_files = folder_images - {c['filename'] for c in candidates}
+        allocated_filenames = set()
+        
+        for c in candidates:
+            pred_name = c['pred_name']
+            pred_cat = c['pred_cat']
+            ext = c['ext']
             
-            # 尋找匹配的 CSV 記錄
-            matched_row = None
-            for row in csv_rows:
-                if (row[idx_gt_name] == target_name and 
-                    row[idx_gt_cat] == target_category and 
-                    row[idx_gt_desc] == target_desc and 
-                    row[idx_gt_id] == target_id):
-                    matched_row = row
-                    break
+            count = pred_name_counts.get(pred_name, 0) + 1
+            pred_name_counts[pred_name] = count
             
-            if matched_row and matched_row[idx_status] == "成功":
-                pred_name = matched_row[idx_pred_name].strip()
-                pred_cat = matched_row[idx_pred_cat].strip()
-                seq_id = matched_row[idx_gt_id].strip()
+            # 格式：[預測名稱]_[預測類別]_[重新排序編號].原附檔名
+            new_filename = f"{pred_name}_{pred_cat}_{count}{ext}"
+            new_filename = re.sub(r'[\\/:*?"<>|]', '', new_filename)
+            
+            # 解決名稱衝突
+            if new_filename in remaining_files or new_filename in allocated_filenames:
+                base_name, ext_part = os.path.splitext(new_filename)
+                suffix = 1
+                while f"{base_name}_{suffix}{ext_part}" in remaining_files or f"{base_name}_{suffix}{ext_part}" in allocated_filenames:
+                    suffix += 1
+                new_filename = f"{base_name}_{suffix}{ext_part}"
                 
-                # 排除空值或無效字元
-                if not pred_name or pred_name == "辨識失敗" or pred_name == "未知":
-                    skip_count += 1
-                    continue
-                
-                # 組合新名稱：[預測名稱]_[預測類別]_[順序編號].原附檔名
-                new_filename = f"{pred_name}_{pred_cat}_{seq_id}{ext}"
-                # 移除 Windows 檔名非法字元
-                new_filename = re.sub(r'[\\/:*?"<>|]', '', new_filename)
-                
-                new_full_path = os.path.join(folder_path, new_filename)
-                
-                if file_full_path != new_full_path:
-                    try:
-                        # 處理名稱衝突
-                        if os.path.exists(new_full_path):
-                            base_name, ext_part = os.path.splitext(new_filename)
-                            count = 1
-                            while os.path.exists(os.path.join(folder_path, f"{base_name}_{count}{ext_part}")):
-                                count += 1
-                            new_full_path = os.path.join(folder_path, f"{base_name}_{count}{ext_part}")
-                            new_filename = f"{base_name}_{count}{ext_part}"
-                            
-                        os.rename(file_full_path, new_full_path)
-                        rename_count += 1
-                        self.log(f"   -> 已重命名: {filename} -> {new_filename}")
-                    except Exception as rename_err:
-                        self.log(f"   [警告] 重命名 {filename} 失敗: {rename_err}")
-                else:
-                    skip_count += 1
+            c['new_filename'] = new_filename
+            allocated_filenames.add(new_filename)
+
+        # 第一階段：暫時重新命名檔案以避免交換/覆蓋衝突
+        for i, c in enumerate(candidates):
+            if c['filename'] != c['new_filename']:
+                temp_name = f"__rename_temp_{i}_{int(time.time())}__{c['ext']}"
+                temp_full_path = os.path.join(folder_path, temp_name)
+                try:
+                    os.rename(c['file_full_path'], temp_full_path)
+                    c['temp_full_path'] = temp_full_path
+                except Exception as e:
+                    self.log(f"   [警告] 暫時重新命名 {c['filename']} 失敗: {e}")
+                    c['temp_full_path'] = None
             else:
-                skip_count += 1
+                c['temp_full_path'] = c['file_full_path']
+
+        # 第二階段：正式命名為最終目標名稱
+        rename_count = 0
+        for c in candidates:
+            if not c.get('temp_full_path'):
+                continue
+            
+            new_full_path = os.path.join(folder_path, c['new_filename'])
+            if c['temp_full_path'] != new_full_path:
+                try:
+                    os.rename(c['temp_full_path'], new_full_path)
+                    rename_count += 1
+                    self.log(f"   -> 已重命名: {c['filename']} -> {c['new_filename']}")
+                except Exception as rename_err:
+                    self.log(f"   [警告] 重新命名 {c['filename']} 至 {c['new_filename']} 失敗: {rename_err}")
+                    # 嘗試復原
+                    try:
+                        os.rename(c['temp_full_path'], c['file_full_path'])
+                    except Exception:
+                        pass
+
+        # 被忽略/跳過的檔案數量為資料夾中所有圖檔扣除成功命名的圖檔數
+        skip_count = len(folder_images) - rename_count
 
         self.log(f"\n[重命名結束] 成功變更: {rename_count} 個檔案, 忽略: {skip_count} 個檔案。")
         self.update_experiment_info()
