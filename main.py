@@ -14,6 +14,7 @@ from PIL import Image, ImageTk
 from google import genai
 from google.genai import types
 import webbrowser
+import time
 
 # ---------------------------------------------------------
 # 1. 系統設定與 INI 檔讀寫邏輯 (config.ini)
@@ -41,7 +42,8 @@ def load_config():
         "model_id": "gemini-3.5-flash",
         "api_key": "",
         "prompt_template": DEFAULT_PROMPT,
-        "folder_path": ""
+        "folder_path": "",
+        "request_interval": "4.0"
     }
     
     if not os.path.exists(CONFIG_FILE):
@@ -64,20 +66,22 @@ def load_config():
             "model_id": settings.get("model_id", defaults["model_id"]),
             "api_key": api_key,
             "prompt_template": settings.get("prompt_template", defaults["prompt_template"]),
-            "folder_path": settings.get("folder_path", defaults["folder_path"])
+            "folder_path": settings.get("folder_path", defaults["folder_path"]),
+            "request_interval": settings.get("request_interval", defaults["request_interval"])
         }
     except Exception as e:
         print(f"讀取設定檔失敗，將使用預設值: {e}")
         return defaults
 
-def save_config(model_id, api_key, prompt_template, folder_path):
+def save_config(model_id, api_key, prompt_template, folder_path, request_interval):
     """保存當前設定至 config.ini"""
     config = configparser.ConfigParser(interpolation=None)
     config["Settings"] = {
         "model_id": model_id,
         "api_key": api_key,
         "prompt_template": prompt_template,
-        "folder_path": folder_path
+        "folder_path": folder_path,
+        "request_interval": request_interval
     }
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -202,12 +206,12 @@ class GeminiBatchTesterApp(ctk.CTk):
         
         models_list = [
             "gemini-3.5-flash",
-            "gemini-3.1-pro-preview",
             "gemini-3.1-flash-lite",
             "gemini-3.1-flash-lite-preview",
-            "gemini-2.5-pro",
             "gemini-2.5-flash",
-            "gemini-2.5-flash-lite"
+            "gemini-2.5-flash-lite",
+            "gemma-4-26b-a4b-it",
+            "gemma-4-31b-it"
         ]
         self.model_combo = ctk.CTkComboBox(self.settings_frame, values=models_list, font=ctk.CTkFont(size=12))
         self.model_combo.grid(row=0, column=1, padx=(5, 15), pady=(12, 6), sticky="ew")
@@ -244,6 +248,13 @@ class GeminiBatchTesterApp(ctk.CTk):
         )
         self.get_key_link.grid(row=2, column=0, columnspan=2, padx=(15, 15), pady=(0, 10), sticky="w")
         self.get_key_link.bind("<Button-1>", lambda e: webbrowser.open("https://aistudio.google.com/app/api-keys"))
+
+        # 請求間隔設定
+        self.interval_label = ctk.CTkLabel(self.settings_frame, text="請求間隔 (秒):", font=ctk.CTkFont(family="Microsoft JhengHei", size=13, weight="bold"))
+        self.interval_label.grid(row=3, column=0, padx=(15, 5), pady=(6, 12), sticky="w")
+        
+        self.interval_entry = ctk.CTkEntry(self.settings_frame, placeholder_text="預設 4.0 秒...")
+        self.interval_entry.grid(row=3, column=1, padx=(5, 15), pady=(6, 12), sticky="ew")
 
         # --- 區域二：提示詞範本設定 ---
         self.prompt_frame = ctk.CTkFrame(self.left_col_frame)
@@ -390,6 +401,7 @@ class GeminiBatchTesterApp(ctk.CTk):
         self.key_entry.insert(0, self.config_data["api_key"])
         self.prompt_text.insert("0.0", self.config_data["prompt_template"])
         self.folder_entry.insert(0, self.config_data["folder_path"])
+        self.interval_entry.insert(0, self.config_data.get("request_interval", "4.0"))
         self.update_experiment_info()
 
     def save_current_config(self):
@@ -399,7 +411,8 @@ class GeminiBatchTesterApp(ctk.CTk):
         # 獲取 prompt_template，使用 strip() 避免尾端換行累積
         prompt_template = self.prompt_text.get("0.0", tk.END).strip()
         folder_path = self.folder_entry.get().strip()
-        save_config(model_id, api_key, prompt_template, folder_path)
+        request_interval = self.interval_entry.get().strip()
+        save_config(model_id, api_key, prompt_template, folder_path, request_interval)
 
     def restore_default_prompt(self):
         """還原提示詞文字框為系統預設排版樣式"""
@@ -612,16 +625,24 @@ class GeminiBatchTesterApp(ctk.CTk):
         self.progress_bar.set(0)
 
         # 4. 啟動背景工作執行緒，避免阻礙主 GUI 渲染
+        request_interval = self.interval_entry.get().strip()
         self.worker_thread = threading.Thread(
             target=self.batch_worker_process, 
-            args=(folder_path, api_key, model_id, prompt_template),
+            args=(folder_path, api_key, model_id, prompt_template, request_interval),
             daemon=True
         )
         self.worker_thread.start()
 
-    def batch_worker_process(self, folder_path, api_key, model_id, prompt_template):
+    def batch_worker_process(self, folder_path, api_key, model_id, prompt_template, request_interval_str):
         """背景工作執行緒核心辨識處理邏輯"""
         try:
+            # 解析間隔時間
+            try:
+                request_interval = float(request_interval_str)
+                if request_interval < 0:
+                    request_interval = 0.0
+            except ValueError:
+                request_interval = 4.0
             # 掃描圖檔
             valid_extensions = ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
             all_files = os.listdir(folder_path)
@@ -694,6 +715,10 @@ class GeminiBatchTesterApp(ctk.CTk):
                     self.after(0, self.log, "\n[使用者終止] 批次執行已被手動終止。")
                     break
 
+                # 頻率控制延遲 (第一張不延遲，後續張數在處理前延遲)
+                if index > 0 and request_interval > 0:
+                    time.sleep(request_interval)
+
                 self.after(0, self.log, f"[{index + 1}/{total_images}] 正在處理: {filename}")
                 self.after(0, self.status_text_label.configure, {
                     "text": f"處理中 ({index + 1}/{total_images}): {filename}",
@@ -734,10 +759,24 @@ class GeminiBatchTesterApp(ctk.CTk):
                     # 替換 prompt 中的 {model_id} 變數
                     formatted_prompt = prompt_template.replace("{model_id}", model_id)
 
-                    response = client.models.generate_content(
-                        model=model_id,
-                        contents=[image_part, formatted_prompt]
-                    )
+                    # 執行 API 呼叫與 429 自動重試邏輯 (重試 1 次)
+                    response = None
+                    max_attempts = 2  # 原始嘗試 1 次 + 重試 1 次
+                    retry_delay = 8.0
+                    for attempt in range(max_attempts):
+                        try:
+                            response = client.models.generate_content(
+                                model=model_id,
+                                contents=[image_part, formatted_prompt]
+                            )
+                            break  # 成功，跳出重試迴圈
+                        except Exception as req_err:
+                            err_str = str(req_err)
+                            if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_attempts - 1:
+                                self.after(0, self.log, f"   [警告] 遭遇 429 頻率限制，將於 {retry_delay} 秒後自動重試 (重試第 {attempt+1} 次)...")
+                                time.sleep(retry_delay)
+                                continue
+                            raise req_err
 
                     # 提取 JSON 結構
                     response_text = response.text

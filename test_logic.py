@@ -69,9 +69,10 @@ def test_config_logic():
         assert defaults["model_id"] == "gemini-3.5-flash", "Default model ID failed"
         assert defaults["api_key"] == "", "Default API key failed"
         assert "物品名稱" in defaults["prompt_template"], "Default prompt template failed"
+        assert defaults["request_interval"] == "4.0", "Default request interval failed"
         
         # Save custom config
-        save_config("custom-model-99", "AIzaSyTestKey123", "測試提示詞 {model_id}", "C:\\test\\path")
+        save_config("custom-model-99", "AIzaSyTestKey123", "測試提示詞 {model_id}", "C:\\test\\path", "2.5")
         
         # Reload custom config
         custom_settings = load_config()
@@ -79,6 +80,7 @@ def test_config_logic():
         assert custom_settings["api_key"] == "AIzaSyTestKey123", "Saving API key failed"
         assert custom_settings["prompt_template"] == "測試提示詞 {model_id}", "Saving prompt failed"
         assert custom_settings["folder_path"] == "C:\\test\\path", "Saving path failed"
+        assert custom_settings["request_interval"] == "2.5", "Saving interval failed"
         
         print(" -> config persistence tests: PASSED")
     finally:
